@@ -17,7 +17,15 @@ and streets from shape files on the map. Also, it can draw GPX tracks.
 The script caches all downloads in `~/.cache/fetchmap`, don't forget to clean
 the directory up once in a while. The `-D` or `--dryrun` option disables all
 downloads (to avoid the ire of the server providers during testing) and output
-file writing. 
+file writing.
+
+## Requirements
+
+  - Python 3
+  - Pillow
+  - GDAL Python bindings (optional)
+
+## Command line parameters 
 
     # fetchmap.py -h
     usage: fetchmap.py [-h] [-P {A0,A1,A2,A3,A4,A5,A6,A7}] [-l] [-p] [-d DPI]
@@ -55,6 +63,8 @@ file writing.
       -o OUT, --out OUT     name of output file
 
 
+## Resources
+
 Shape files for the streets are available from [Natural Earth](http://www.naturalearthdata.com/),
 the large scale [1:10m Cultural Vectors](http://www.naturalearthdata.com/downloads/10m-cultural-vectors)
 road data is usually sufficient, the North America supplement is strongly recommended,
@@ -63,7 +73,9 @@ as the regular file seems to miss whole sections of streets in some areas.
 Good base map tiles are available (at the time of writing) from
 [Wikimedia](https://www.mediawiki.org/wiki/Maps/Technical_Implementation),
 [GIScience Universität Heidelberg](https://korona.geog.uni-heidelberg.de/contact.html), or
-[ArgGIS](https://services.arcgisonline.com/ArcGIS/rest/services/).   
+[ArgGIS](https://services.arcgisonline.com/ArcGIS/rest/services/).
+
+## Notes   
 
 Please excuse the messy code, this suddenly escalated from a simple tile
 stitcher to what it is now. Funny how that keeps happening to me.
