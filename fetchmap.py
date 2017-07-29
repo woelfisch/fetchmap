@@ -387,7 +387,7 @@ class MapDraw:
     def set_style(self, styleid):
         """
         Set style of overlays
-        :param style: id of map style
+        :param styleid: id of map style
         :return:
         """
 
@@ -396,6 +396,7 @@ class MapDraw:
             for attr in Styles[styleid].keys():
                 self.style[attr] = st[attr]
 
+    # noinspection PyAttributeOutsideInit,PyAttributeOutsideInit
     def set_image(self, image):
         self.image = image
         self.canvas = ImageDraw.Draw(image)
@@ -425,6 +426,8 @@ class MapDraw:
         :param lat: latitude
         :param lon: longitude
         :param linetype: type of line for style
+        :param linewidth: width of line, overwrites style data
+        :param linecolor: color of line, overwrites style data
         :return:
         """
 
@@ -626,7 +629,7 @@ class OSMParser(HTMLParser):
 def stitch_map(draw, swx, swy, nex, ney, zoom):
     """
     Retreive and stitch the tiles for range of tiles
-    :param themap: PIL image instance
+    :param draw: canvas
     :param swx: x tile coordinate for the South/West corner tile
     :param swy: y tile coordinate for the South/West corner tile
     :param nex: x tile coordinate for the North/East corner tile
@@ -820,8 +823,7 @@ if __name__ == "__main__":
     print("Size of paper: {}×{}".format(papersize[0], papersize[1]))
     print("Size of graphics: {}×{}".format(numx * tilesize, numy * tilesize))
 
-    themap = Image.new("RGB", [numx * tilesize, numy * tilesize])
-    canvas = MapDraw(themap, args.north, args.west, zoom)
+    canvas = MapDraw(Image.new("RGB", [numx * tilesize, numy * tilesize]), args.north, args.west, zoom)
     canvas.set_style(style)
 
     stitch_map(canvas, swx, swy, nex, ney, zoom)
