@@ -67,7 +67,7 @@ file writing.
 
 Shape files for the streets are available from [Natural Earth](http://www.naturalearthdata.com/),
 the large scale [1:10m Cultural Vectors](http://www.naturalearthdata.com/downloads/10m-cultural-vectors)
-road data is usually sufficient, the North America supplement is strongly recommended,
+road data is suitable, the North America supplement is strongly recommended,
 as the regular file seems to miss whole sections of streets in some areas.
 
 Good base map tiles are available (at the time of writing) from

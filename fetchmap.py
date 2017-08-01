@@ -28,6 +28,8 @@ import sys
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
+from inspect import getframeinfo, currentframe
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
@@ -178,8 +180,23 @@ tileshandle = DEFAULT_TILESERVER
 tilesserver = TileserverList[tileshandle]
 tilesize = 256
 
-cachedir = "~/.cache/fetchmap"
-cachedir = os.path.abspath(os.path.expanduser(cachedir))
+Cachedir = "~/.cache/fetchmap"
+
+
+# filename and directory stuff
+
+def get_path(filename):
+    """
+    Return the full path of filename (including filename)
+    :param filename: the filename 
+    :return: 
+    """
+    return os.path.abspath(os.path.expanduser(filename))
+
+
+def get_programdir():
+    p = get_path(getframeinfo(currentframe()).filename)
+    return str(Path(p).resolve().parent)
 
 # Paper size stuff
 
@@ -201,7 +218,7 @@ def get_paper_size(paper="A4", landscape=False, dpi=300, margin=5):
     if landscape:
         size.reverse()
 
-    return round((size[0]-margin) / 25.4 * dpi), round((size[1]-margin) / 25.4 * dpi)
+    return round((size[0] - margin) / 25.4 * dpi), round((size[1] - margin) / 25.4 * dpi)
 
 
 def fits(south, west, north, east, xmax, ymax, zoom):
@@ -216,8 +233,9 @@ def fits(south, west, north, east, xmax, ymax, zoom):
     :param zoom: zoom factor
     :return: True if it fits
     """
-    (swx, swy, nex, ney, numx, numy) = get_tilerange(south, west, north, east, zoom)
+    swx, swy, nex, ney, numx, numy = get_tilerange(south, west, north, east, zoom)
     return (numx <= xmax) and (numy <= ymax)
+
 
 # conversions to and from tile numbers / pixel on map and geo coordinates
 
@@ -274,8 +292,8 @@ def get_tilerange(south, west, north, east, zoom):
     :param zoom: zoom factor
     :return: tupel of corner tiles and number of tiles in each direction
     """
-    (xtile1, ytile1) = deg2num(south, west, zoom)
-    (xtile2, ytile2) = deg2num(north, east, zoom)
+    xtile1, ytile1 = deg2num(south, west, zoom)
+    xtile2, ytile2 = deg2num(north, east, zoom)
     numx = abs(xtile2 - xtile1) + 1
     numy = abs(ytile2 - ytile1) + 1
     return xtile1, ytile1, xtile2, ytile2, numx, numy
@@ -291,9 +309,10 @@ def get_bbox(x1, y1, x2, y2, zoom):
     :param zoom: zoom factor
     :return: tuple with bounding box
     """
-    (lat1, lon1) = num2deg(x1, y1 + 1, zoom)
-    (lat2, lon2) = num2deg(x2 + 1, y2, zoom)
+    lat1, lon1 = num2deg(x1, y1 + 1, zoom)
+    lat2, lon2 = num2deg(x2 + 1, y2, zoom)
     return lat1, lon1, lat2, lon2
+
 
 # Get data from cache or web service
 
@@ -305,13 +324,13 @@ def fetch_tile(x, y, zoom):
     :param zoom: zoom factor
     :return: image
     """
-    ydir = "{cdir}/{handle}/{zoom}/{x}".format(cdir=cachedir, handle=tileshandle, zoom=zoom, x=x)
+    ydir = "{cdir}/{handle}/{zoom}/{x}".format(cdir=Cachedir, handle=tileshandle, zoom=zoom, x=x)
     os.makedirs(ydir, exist_ok=True)
     tilefile = "{}/{}.png".format(ydir, y)
     url = tileserver.replace("${", "{").format(z=zoom, x=x, y=y)
     # print("url={} cachefile={}".format(url, tilefile))
     if os.path.exists(tilefile):
-        return Image.open(tilefile).convert("RGB")
+        return Image.open(tilefile).convert("RGBA")
 
     if args.dryrun:
         return None
@@ -321,7 +340,7 @@ def fetch_tile(x, y, zoom):
             tiledata = rfp.read()
             with open(tilefile, "wb") as lfp:
                 lfp.write(tiledata)
-        return Image.open(io.BytesIO(tiledata)).convert("RGB")
+        return Image.open(io.BytesIO(tiledata)).convert("RGBA")
     except:
         print("Can't read tile {z}/{x}/{y}".format(z=zoom, x=x, y=y))
         return None
@@ -337,14 +356,14 @@ def fetch_labels(tile_west, tile_south, tile_east, tile_north, zoom):
     :param zoom: zoom factor
     :return:
     """
-    cachefile = "{cdir}/{z}-{w}-{s}-{e}-{n}.osm".format(cdir=cachedir, z=zoom, w=tile_west, s=tile_south, e=tile_east,
+    cachefile = "{cdir}/{z}-{w}-{s}-{e}-{n}.osm".format(cdir=Cachedir, z=zoom, w=tile_west, s=tile_south, e=tile_east,
                                                         n=tile_north)
     if os.path.exists(cachefile):
         with open(cachefile, "r") as fp:
             osmdata = fp.read()
         return osmdata
 
-    (lat1, lon1, lat2, lon2) = get_bbox(tile_west, tile_south, tile_east, tile_north, zoom)
+    lat1, lon1, lat2, lon2 = get_bbox(tile_west, tile_south, tile_east, tile_north, zoom)
     bbox = "{y1},{x1},{y2},{x2}".format(y1=lat1, x1=lon1, y2=lat2, x2=lon2)
     params = {
         "data": OVERPASS_QUERY.format(bbox=bbox),
@@ -362,10 +381,25 @@ def fetch_labels(tile_west, tile_south, tile_east, tile_north, zoom):
     return osmdata
 
 
+# XML parser helper(s)
+
+def latlon_from_attrs(attrs):
+    lat = None
+    lon = None
+
+    for (k, v) in attrs:
+        if k == "lat":
+            lat = float(v)
+        if k == "lon":
+            lon = float(v)
+    return lat, lon
+
+
 class MapDraw:
     """
     Draw lines and labels on a map
     """
+
     def __init__(self, image, lat, lon, zoom, tilesize=256):
         """
         Constructor
@@ -378,11 +412,13 @@ class MapDraw:
 
         self.set_image(image)
         self.zoom = zoom
-        (xorigin, yorigin) = deg2num(lat, lon, zoom)
+        xorigin, yorigin = deg2num(lat, lon, zoom)
         self.origin = (xorigin * tilesize, yorigin * tilesize)
         self.cursor = (0, 0)
         self.labels = []
         self.style = Styles["default"]
+
+        self.wpticon = Image.open(Resourcedir+"/waypoint.png").convert("RGBA")
 
     def set_style(self, styleid):
         """
@@ -408,7 +444,7 @@ class MapDraw:
         :param lon: longitude
         :return:
         """
-        (xabs, yabs) = deg2pixel(lat, lon, self.zoom)
+        xabs, yabs = deg2pixel(lat, lon, self.zoom)
         return xabs - self.origin[0], yabs - self.origin[1]
 
     def move(self, lat, lon):
@@ -456,7 +492,7 @@ class MapDraw:
             outlinecolor = "white"
 
         if "outlinewidth" in canvas.style:
-            outlinewidth = linewidth + canvas.style["outlinewidth"][linetype]*2
+            outlinewidth = linewidth + canvas.style["outlinewidth"][linetype] * 2
         else:
             outlinewidth = 0
 
@@ -508,47 +544,53 @@ class MapDraw:
 
         # self.labels.append(markerbox)
 
+    def waypoint(self, lat, lon, text=None):
+        pos = self.latlon_to_canvas(lat, lon)
+        self.image.paste(self.wpticon, pos, self.wpticon)
 
 class GPXTrackParser(HTMLParser):
     """
     Parse a GPX file and canvas it's track on the map
     """
-    def __init__(self, draw):
+
+    def __init__(self, draw, features="any"):
         """
         Constructor
         :param draw: canvas
         """
         self.draw = draw
         self.newtrk = True
+        self.render_track = features in ["trk", "any"]
+        self.render_waypoints = features in ["wpt", "any"]
         super().__init__()
 
     def handle_starttag(self, tag, attrs):
-        if tag == "trkseg":
-            self.newtrk = True
-        if tag == "trkpt":
-            lat = None
-            lon = None
+        if self.render_track:
+            if tag == "trkseg":
+                self.newtrk = True
+            if tag == "trkpt":
+                lat, lon = latlon_from_attrs(attrs)
+                if lat is None or lon is None:
+                    return
 
-            for (k, v) in attrs:
-                if k == "lat":
-                    lat = float(v)
-                if k == "lon":
-                    lon = float(v)
+                if self.newtrk:
+                    self.draw.move(lat, lon)
+                    self.newtrk = False
+                else:
+                    self.draw.line(lat, lon, linetype="Track")
 
-            if lat is None or lon is None:
-                return
-
-            if self.newtrk:
-                self.draw.move(lat, lon)
-                self.newtrk = False
-            else:
-                self.draw.line(lat, lon, linetype="Track")
+        if self.render_waypoints:
+            if tag == "wpt":
+                lat, lon = latlon_from_attrs(attrs)
+                if lat is not None and lon is not None:
+                    self.draw.waypoint(lat, lon)
 
 
 class OSMParser(HTMLParser):
     """
     Parse the Overpass output and sort the information according to classes and size of population
     """
+
     def __init__(self, draw):
         """
         Constructor
@@ -568,13 +610,8 @@ class OSMParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag == "node":
             self.kv = {}
-            self.lat = None
-            self.lon = None
-            for (k, v) in attrs:
-                if k == "lat":
-                    self.lat = float(v)
-                if k == "lon":
-                    self.lon = float(v)
+            self.lat, self.lon = latlon_from_attrs(attrs)
+
         if tag == "tag":
             key = None
             val = None
@@ -626,6 +663,7 @@ class OSMParser(HTMLParser):
 
         return self.townlist
 
+
 def stitch_map(draw, swx, swy, nex, ney, zoom):
     """
     Retreive and stitch the tiles for range of tiles
@@ -652,14 +690,15 @@ def stitch_map(draw, swx, swy, nex, ney, zoom):
 
     if "mapcoloradjust" in draw.style:
         ta = draw.style["mapcoloradjust"]
-        img = draw.image
+        img = draw.image.convert("RGB")
         if "saturation" in ta:
             img = ImageEnhance.Color(img).enhance(ta["saturation"])
         if "contrast" in ta:
             img = ImageEnhance.Contrast(img).enhance(ta["contrast"])
         if "brightness" in ta:
             img = ImageEnhance.Brightness(img).enhance(ta["brightness"])
-        draw.set_image(img)
+        draw.set_image(img.convert("RGBA"))
+
 
 def draw_streets(draw, swx, swy, nex, ney, zoom):
     """
@@ -672,12 +711,12 @@ def draw_streets(draw, swx, swy, nex, ney, zoom):
     :param zoom: zoom factor
     :return:
     """
-    shapefile = os.path.abspath(os.path.expanduser(args.shapefile))
+    shapefile = get_path(args.shapefile)
     if os.path.exists(shapefile):
         drv = ogr.GetDriverByName("ESRI Shapefile")
         shp = drv.Open(shapefile, 0)
         shplayer = shp.GetLayer()
-        (lat1, lon1, lat2, lon2) = get_bbox(swx, swy, nex, ney, zoom)
+        lat1, lon1, lat2, lon2 = get_bbox(swx, swy, nex, ney, zoom)
         wkt = "POLYGON (({lon1} {lat1},{lon1} {lat2},{lon2} {lat2},{lon2} {lat1},{lon1} {lat1}))".format(lon1=lon1,
                                                                                                          lat1=lat1,
                                                                                                          lon2=lon2,
@@ -708,6 +747,7 @@ def draw_streets(draw, swx, swy, nex, ney, zoom):
                 for c in coords:
                     draw.multiline(c, linetype=level)
 
+
 def draw_gpx_tracks(draw, gpxfiles):
     """
     Draw the tracks for one or more gpxfiles
@@ -718,16 +758,25 @@ def draw_gpx_tracks(draw, gpxfiles):
     if not gpxfiles:
         return
 
-    for gpxfile in gpxfiles.split(":"):
-        gpxfile = os.path.abspath(os.path.expanduser(gpxfile))
+    for gpxfilespec in gpxfiles.split(os.pathsep):
+        gfs = gpxfilespec.split(",")
+        if len(gfs) > 1 and gfs[0] in ["wpt", "trk", "any"]:
+            features = gfs[0]
+            gpxfile = ",".join(gfs[1:])
+        else:
+            features = "any"
+            gpxfile = gpxfilespec
+
+        gpxfile = get_path(gpxfile)
         if not os.path.exists(gpxfile):
             print("GPX file »{}« does not exist, ignored".format(gpxfile))
             continue
 
         with open(gpxfile, "r") as fp:
-            gpxparser = GPXTrackParser(draw)
+            gpxparser = GPXTrackParser(draw, features)
             gpxparser.feed(fp.read())
             gpxparser.close()
+
 
 def draw_town_labels(draw, swx, swy, nex, ney, zoom):
     """
@@ -778,10 +827,16 @@ def get_cmdline_args():
     parser.add_argument("-o", "--out", type=str, default="mapfile-{}.jpg", help="name of output file")
     return parser.parse_args()
 
+
 if __name__ == "__main__":
     """
     Main logic 
     """
+
+    Cachedir = get_path(Cachedir)
+    Programdir = get_programdir()
+    Resourcedir = Programdir + os.path.sep + "resources"
+
     args = get_cmdline_args()
     papersize = get_paper_size(args.papersize, False, args.dpi, args.margin)
     maxtilesx, maxtilesy = [papersize[0] / tilesize, papersize[1] / tilesize]
@@ -814,7 +869,7 @@ if __name__ == "__main__":
         print("Paper too small for anything, suitable zoom factor found.")
         sys.exit(1)
 
-    (swx, swy, nex, ney, numx, numy) = get_tilerange(args.south, args.west, args.north, args.east, zoom)
+    swx, swy, nex, ney, numx, numy = get_tilerange(args.south, args.west, args.north, args.east, zoom)
 
     print("SW tile: {}/{}/{}.png".format(zoom, swx, swy))
     print("NE tile: {}/{}/{}.png".format(zoom, nex, ney))
@@ -823,7 +878,7 @@ if __name__ == "__main__":
     print("Size of paper: {}×{}".format(papersize[0], papersize[1]))
     print("Size of graphics: {}×{}".format(numx * tilesize, numy * tilesize))
 
-    canvas = MapDraw(Image.new("RGB", [numx * tilesize, numy * tilesize]), args.north, args.west, zoom)
+    canvas = MapDraw(Image.new("RGBA", [numx * tilesize, numy * tilesize]), args.north, args.west, zoom)
     canvas.set_style(style)
 
     stitch_map(canvas, swx, swy, nex, ney, zoom)
