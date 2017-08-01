@@ -39,6 +39,7 @@ try:
 
     HAVE_GDAL = True
 except:
+    print("NOTE: GDAL bindings not available, won't render streets")
     HAVE_GDAL = False
 
 DEFAULT_TILESERVER = "wikimedia"
@@ -545,12 +546,19 @@ class MapDraw:
         # self.labels.append(markerbox)
 
     def waypoint(self, lat, lon, text=None):
-        pos = self.latlon_to_canvas(lat, lon)
-        self.image.paste(self.wpticon, pos, self.wpticon)
+        """
+        Draw a waypoint marker
+        :param lat: latitude
+        :param lon: longitude
+        :param text: label (unused)
+        :return:
+        """
+        x, y = self.latlon_to_canvas(lat, lon)
+        self.image.paste(self.wpticon, (x, y-self.wpticon.width), self.wpticon)
 
-class GPXTrackParser(HTMLParser):
+class GPXParser(HTMLParser):
     """
-    Parse a GPX file and canvas it's track on the map
+    Parse a GPX file and draw it's track and waypoints on the map
     """
 
     def __init__(self, draw, features="any"):
@@ -562,6 +570,7 @@ class GPXTrackParser(HTMLParser):
         self.newtrk = True
         self.render_track = features in ["trk", "any"]
         self.render_waypoints = features in ["wpt", "any"]
+        self.waypoints = []
         super().__init__()
 
     def handle_starttag(self, tag, attrs):
@@ -581,9 +590,25 @@ class GPXTrackParser(HTMLParser):
 
         if self.render_waypoints:
             if tag == "wpt":
-                lat, lon = latlon_from_attrs(attrs)
-                if lat is not None and lon is not None:
-                    self.draw.waypoint(lat, lon)
+                self.lat, self.lon = latlon_from_attrs(attrs)
+
+    def handle_endtag(self, tag):
+        if self.render_waypoints:
+            if tag == "wpt" and self.lat is not None and self.lon is not None:
+                self.waypoints.append((self.lat, self.lon))
+
+    def draw_waypoints(self):
+        """
+        Draw waypoint markers
+        :return:
+        """
+        if self.render_waypoints:
+            for wpt in self.waypoints:
+                if len(wpt) > 2:
+                    text = wpt[2]
+                else:
+                    text = None
+                self.draw.waypoint(wpt[0], wpt[1], text)
 
 
 class OSMParser(HTMLParser):
@@ -758,6 +783,7 @@ def draw_gpx_tracks(draw, gpxfiles):
     if not gpxfiles:
         return
 
+    gpxinstances = []
     for gpxfilespec in gpxfiles.split(os.pathsep):
         gfs = gpxfilespec.split(",")
         if len(gfs) > 1 and gfs[0] in ["wpt", "trk", "any"]:
@@ -773,10 +799,22 @@ def draw_gpx_tracks(draw, gpxfiles):
             continue
 
         with open(gpxfile, "r") as fp:
-            gpxparser = GPXTrackParser(draw, features)
+            gpxparser = GPXParser(draw, features)
             gpxparser.feed(fp.read())
             gpxparser.close()
+            gpxinstances.append(gpxparser)
 
+    return gpxinstances
+
+def draw_gpx_waypoints(gpxlist):
+    """
+    Draw the marker of the GPX tracks
+    :param gpxlist: list of GPXParser
+    :return:
+    """
+
+    for gpx in gpxlist:
+        gpx.draw_waypoints()
 
 def draw_town_labels(draw, swx, swy, nex, ney, zoom):
     """
@@ -886,9 +924,10 @@ if __name__ == "__main__":
     if HAVE_GDAL:
         draw_streets(canvas, swx, swy, nex, ney, zoom)
 
-    draw_gpx_tracks(canvas, args.gpx)
+    gpxlist = draw_gpx_tracks(canvas, args.gpx)
     draw_town_labels(canvas, swx, swy, nex, ney, zoom)
+    draw_gpx_waypoints(gpxlist)
 
     if not args.dryrun:
         with open(args.out.format(tileshandle), "wb") as fp:
-            canvas.image.save(fp)
+            canvas.image.convert("RGB").save(fp)
