@@ -29,10 +29,10 @@ file writing.
 
     # fetchmap.py -h
     usage: fetchmap.py [-h] [-P {A0,A1,A2,A3,A4,A5,A6,A7}] [-l] [-p] [-d DPI]
-                       [-m MARGIN] [-z ZOOM] [-D]
-                       [-s {esri-terrain,esri-topo,korona-roads,natgeo,stamen-terrain,stamen-toner,wikimedia,wikimedia-labels}]
-                       [-t TILESERVER] [-g GPX] [-S SHAPEFILE] [-o OUT]
-                       west south east north
+                   [-m MARGIN] [-z ZOOM] [-D]
+                   [-s {esri-terrain,esri-topo,korona-roads,natgeo,stamen-terrain,stamen-toner,wikimedia,wikimedia-labels}]
+                   [-t TILESERVER] [-g GPX] [-S SHAPEFILE] [-o OUT]
+                   west south east north
     
     create printable map from bounding box
     
