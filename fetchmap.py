@@ -117,6 +117,7 @@ Styles = {
             "capitals": ImageFont.truetype("Cabin-Bold", 56),
             "cities": ImageFont.truetype("Cabin-Bold", 44),
             "towns": ImageFont.truetype("Cabin-Regular", 44),
+            "waypoints": ImageFont.truetype("Cabin-Bold", 48),
         },
         "markersizes": {
             "capitals": 14,
@@ -138,6 +139,10 @@ Styles = {
             "Other": "#C8C8C8",
             "Track": "#FF5500",
         },
+        "waypointcolor": {
+            "background": "#FF5500",
+            "text": "#FF0000",
+        }
     },
     "stamen": {
         "linewidth": {
@@ -554,7 +559,24 @@ class MapDraw:
         :return:
         """
         x, y = self.latlon_to_canvas(lat, lon)
-        self.image.paste(self.wpticon, (x, y-self.wpticon.width), self.wpticon)
+        y -= self.wpticon.height
+        self.image.paste(self.wpticon, (x, y), self.wpticon)
+
+        if text:
+            font = self.style["fonts"]["waypoints"]
+            textcolor = self.style["waypointcolor"]["text"]
+            bgcolor = self.style["waypointcolor"]["background"]
+
+            x += self.wpticon.width
+            ts = self.canvas.textsize(text, font=font)
+            bgpos = (x, y - ts[1] - 4)
+            textpos = (bgpos[0] + 4, bgpos[1])
+
+            bg = Image.new("RGBA", (ts[0]+8, ts[1]+8), color=bgcolor)
+            bg.putalpha(192)
+            self.image.paste(bg, bgpos, bg)
+
+            self.canvas.text(textpos, text, font=font, fill=textcolor)
 
 class GPXParser(HTMLParser):
     """
@@ -571,13 +593,19 @@ class GPXParser(HTMLParser):
         self.render_track = features in ["trk", "any"]
         self.render_waypoints = features in ["wpt", "any"]
         self.waypoints = []
+        self.process_wpt = False
+        self.process_name = False
+        self.process_desc = False
+        self.wpt_name = None
+        self.wpt_desc = None
+
         super().__init__()
 
     def handle_starttag(self, tag, attrs):
         if self.render_track:
             if tag == "trkseg":
                 self.newtrk = True
-            if tag == "trkpt":
+            elif tag == "trkpt":
                 lat, lon = latlon_from_attrs(attrs)
                 if lat is None or lon is None:
                     return
@@ -591,11 +619,34 @@ class GPXParser(HTMLParser):
         if self.render_waypoints:
             if tag == "wpt":
                 self.lat, self.lon = latlon_from_attrs(attrs)
+                self.process_wpt = True
+
+            if self.process_wpt == True:
+                if tag == "name":
+                    self.wpt_name = ""
+                    self.process_name = True
+                elif tag == "desc":
+                    self.wpt_desc = ""
+                    self.process_desc = True
 
     def handle_endtag(self, tag):
         if self.render_waypoints:
             if tag == "wpt" and self.lat is not None and self.lon is not None:
-                self.waypoints.append((self.lat, self.lon))
+                # print(self.wpt_name, self.wpt_desc)
+                self.waypoints.append((self.lat, self.lon, self.wpt_name))
+                self.wpt_name = None
+                self.wpt_desc = None
+            elif tag == "name":
+                self.process_name = False
+            elif tag == "desc":
+                self.process_desc = False
+
+    def handle_data(self, data):
+        if self.process_wpt:
+            if self.process_name:
+                self.wpt_name += data
+            if self.process_desc:
+                self.wpt_desc += data
 
     def draw_waypoints(self):
         """
