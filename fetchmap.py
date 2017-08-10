@@ -398,6 +398,11 @@ def fetch_labels(tile_west, tile_south, tile_east, tile_north, zoom):
 # XML parser helper(s)
 
 def latlon_from_attrs(attrs):
+    """
+    Retrieve lat and lon values from XML tag attributes
+    :param attrs: list of attribute (key, val) tuples
+    :return: tuple of latitude and longitude values
+    """
     lat = None
     lon = None
 
@@ -412,6 +417,14 @@ def latlon_from_attrs(attrs):
 # Font helper(s)
 
 def get_font_path(font_representation):
+    """
+    Get the filesystem path to a font described by a fontconfig representation. See
+    https://www.freedesktop.org/software/fontconfig/fontconfig-user.html for specs
+
+    This function contains a workaround in case Python-fontconfig isn't available
+    :param font_representation: representation of a font, for example "Arial:style=Regular"
+    :return: path
+    """
     if HAVE_FONTCONFIG:
         fcfont = fontconfig.query(family=font_representation, lang="en")
         if len(fcfont) < 1:
@@ -424,6 +437,11 @@ def get_font_path(font_representation):
     return None
 
 def get_font(fontspec):
+    """
+    Gets a Pillow ImageFont from the font specification
+    :param fontspec: tuple of (font_representation, size), see get_font_path() for details
+    :return: ImageFont instance
+    """
     fontfile = get_font_path(fontspec[0])
     if not fontfile:
         fontfile = get_font_path("Arial:style=Bold")
