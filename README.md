@@ -2,7 +2,7 @@
 
 Usage example:
 
-`fetchmap.py fetchmap.py -112.23 34.85 -104.58 40.67 -P A3 -s esri-topo -S /data/maps/naturalearth/ne_10m_roads_north_america.shp -g ~/roadtrip/2017/Roadtrip-2017.gpx -o ~/roadtrip/2017/planned-route.jpg`
+`fetchmap.py -112.23 34.85 -104.58 40.67 -P A3 -s esri-topo -S /data/maps/naturalearth/ne_10m_roads_north_america.shp -g ~/roadtrip/2017/Roadtrip-2017.gpx -o ~/roadtrip/2017/planned-route.jpg`
 
 Fetchmap downloads and stitches map tiles for a given area from a tile server.
 It automatically calculates the zoom factor according to the paper size, margins,
@@ -23,8 +23,8 @@ file writing.
 
   - Python 3
   - Pillow 1.1.7 or newer
+  - Python-fontconfig 0.5.1 or newer (strongly recommended)  
   - GDAL Python bindings (optional)
-  - Python-fontconfig 0.5.1 (optional)
 
 ## Command line parameters 
 
@@ -76,6 +76,15 @@ Good base map tiles are available (at the time of writing) from
 [Wikimedia](https://www.mediawiki.org/wiki/Maps/Technical_Implementation),
 [GIScience Universität Heidelberg](https://korona.geog.uni-heidelberg.de/contact.html), or
 [ArgGIS](https://services.arcgisonline.com/ArcGIS/rest/services/).
+
+The default font "Cabin" can be installed with
+
+  - "zypper in google-cabin-fonts" on openSUSE
+  - "typecatcher" on Ubuntu 16.04
+  
+There is no Python-fontconfig packaged for openSUSE, for Ubuntu the package name
+is *python3-fontconfig*. If someone knows how the Pillow font handling works
+under Windows: pull requests appreciated.
 
 ## Notes   
 

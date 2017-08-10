@@ -17,14 +17,15 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 # example usage:
-# fetchmap.py fetchmap.py -112.23 34.85 -104.58 40.67 -P A3 -s esri-topo -S /data/maps/naturalearth/ne_10m_roads_north_america.shp -g ~/roadtrip/2017/Roadtrip-2017.gpx -o ~/roadtrip/2017/planned-route.jpg
+# fetchmap.py -112.23 34.85 -104.58 40.67 -P A3 -s esri-topo -S /data/maps/naturalearth/ne_10m_roads_north_america.shp -g ~/roadtrip/2017/Roadtrip-2017.gpx -o ~/roadtrip/2017/planned-route.jpg
 
 import argparse
 import io
 import math
+import sys
 import os
 import os.path
-import sys
+import subprocess
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -46,7 +47,6 @@ try:
     import fontconfig
     HAVE_FONTCONFIG = True
 except:
-    print('NOTE: Fontconfig bindings not available, adjust Styles[*]["fonts"] if required')
     HAVE_FONTCONFIG = False
 
 DEFAULT_TILESERVER = "wikimedia"
@@ -120,14 +120,12 @@ TileserverList = {
 
 Styles = {
     "default": {
-        # Fonts can either be specified by their filename, i.e. ("arialbd.ttf", 56) or
-        # by fontconfig specification, i.e. (("Arial", "Bold"), 56)
         "fonts": {
             # Cabin is provided with the Google Web Fonts, available from http://www.impallari.com/cabin
-            "capitals": ("Cabin-Bold.ttf", 56),
-            "cities":("Cabin-Bold.ttf", 44),
-            "towns": ("Cabin-Regular.ttf", 44),
-            "waypoints": ("Cabin-Bold.ttf", 48),
+            "capitals": ("Cabin:style=Bold", 56),
+            "cities":("Cabin:style=Bold", 44),
+            "towns": ("Cabin:style=Regular", 44),
+            "waypoints": ("Cabin:style=Bold", 48),
         },
         "markersizes": {
             "capitals": 14,
@@ -413,49 +411,27 @@ def latlon_from_attrs(attrs):
 
 # Font helper(s)
 
-Fontdirs = []
-def get_font_dirs():
+def get_font_path(font_representation):
     if HAVE_FONTCONFIG:
-        for f in fontconfig.query():
-            fd = os.path.dirname(f)
-            if fd not in Fontdirs:
-                Fontdirs.append(fd)
+        fcfont = fontconfig.query(family=font_representation, lang="en")
+        if len(fcfont) < 1:
+            return None
+        return fcfont[0].file
+
+    res = subprocess.check_output(["fc-match", "-f", "%{file}", font_representation + ":stylelang=en"])
+    if res:
+        return str(res)
+    return None
 
 def get_font(fontspec):
-    fontfile = fontspec[0]
-    fontsize = fontspec[1]
-    have_fcspec = isinstance(fontfile, tuple) or isinstance(fontfile, list)
+    fontfile = get_font_path(fontspec[0])
+    if not fontfile:
+        fontfile = get_font_path("Arial:style=Bold")
+        if not fontfile:
+            print("WARNING: neither {} nor Arial fonts are available".format(fontspec[0]))
+            return ImageFont.load_default()
 
-    if HAVE_FONTCONFIG:
-        found = False
-        if have_fcspec:
-            fontfile = fontspec[0][0]
-
-            # providing lang does nothing, though
-            fcfonts = fontconfig.query(family=fontspec[0][0], lang="en")
-
-            # here's the kicker: iterating over fcfonts directly results in strings of filenames
-            for fcfcount in range(len(fcfonts)):
-                fcf = fcfonts[fcfcount]
-                for lang, style in fcf.style:
-                    if lang == "en" and style.lower() == fontspec[0][1].lower():
-                        fontfile = fcf.file
-                        found = True
-
-        if not found:
-            for fd in Fontdirs:
-                ff = fd+os.path.sep+fontfile
-                if os.path.exists(ff):
-                    fontfile = ff
-                    found = True
-                    break
-            if not found:
-                return ImageFont.load_default()
-    elif have_fcspec:
-        print("WARNING: fontconfig specification not supported without fontconfig module")
-        return ImageFont.load_default()
-
-    return ImageFont.truetype(fontfile, fontsize)
+    return ImageFont.truetype(fontfile, fontspec[1])
 
 class MapDraw:
     """
@@ -1067,7 +1043,6 @@ if __name__ == "__main__":
     Cachedir = get_path(Cachedir)
     Programdir = get_programdir()
     Resourcedir = Programdir + os.path.sep + "resources"
-    get_font_dirs()
 
     args = get_cmdline_args()
     papersize = get_paper_size(args.papersize, False, args.dpi, args.margin)
@@ -1125,8 +1100,7 @@ if __name__ == "__main__":
     draw_gpx_waypoints(gpxlist)
 
     if not args.dryrun:
-        with open(outfile, "wb") as fp:
-            canvas.image.convert("RGB").save(fp)
+        canvas.image.convert("RGB").save(outfile)
 
         p = Path(outfile)
         htmlfile = str(p.parent) + os.path.sep + p.stem + ".html"
