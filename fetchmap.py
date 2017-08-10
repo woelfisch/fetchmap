@@ -213,6 +213,7 @@ def get_programdir():
     p = get_path(getframeinfo(currentframe()).filename)
     return str(Path(p).resolve().parent)
 
+
 # Paper size stuff
 
 def get_paper_size(paper="A4", landscape=False, dpi=300, margin=5):
@@ -479,7 +480,7 @@ class MapDraw:
         self.labels = []
         self.style = Styles["default"]
 
-        self.wpticon = Image.open(Resourcedir+"/waypoint.png").convert("RGBA")
+        self.wpticon = Image.open(Resourcedir + "/waypoint.png").convert("RGBA")
         self.fonts = {}
         self.set_fonts()
 
@@ -634,11 +635,12 @@ class MapDraw:
             bgpos = (x, y - ts[1] - 4)
             textpos = (bgpos[0] + 4, bgpos[1])
 
-            bg = Image.new("RGBA", (ts[0]+8, ts[1]+8), color=bgcolor)
+            bg = Image.new("RGBA", (ts[0] + 8, ts[1] + 8), color=bgcolor)
             bg.putalpha(192)
             self.image.paste(bg, bgpos, bg)
 
             self.canvas.text(textpos, text, font=font, fill=textcolor)
+
 
 class GPXParser(HTMLParser):
     """
@@ -655,11 +657,15 @@ class GPXParser(HTMLParser):
         self.render_track = features in ["trk", "any"]
         self.render_waypoints = features in ["wpt", "any"]
         self.waypoints = []
+        self.waypoint_translation = []
+
+        self.process_metadata = False
         self.process_wpt = False
         self.process_name = False
         self.process_desc = False
         self.wpt_name = None
         self.wpt_desc = None
+        self.metadata_desc = None
 
         super().__init__()
 
@@ -682,13 +688,19 @@ class GPXParser(HTMLParser):
             if tag == "wpt":
                 self.lat, self.lon = latlon_from_attrs(attrs)
                 self.process_wpt = True
+            elif tag == "metadata":
+                self.process_metadata = True
 
-            if self.process_wpt == True:
+            if self.process_wpt:
                 if tag == "name":
                     self.wpt_name = ""
                     self.process_name = True
                 elif tag == "desc":
                     self.wpt_desc = ""
+                    self.process_desc = True
+            elif self.process_metadata:
+                if tag == "desc":
+                    self.metadata_desc = ""
                     self.process_desc = True
 
     def handle_endtag(self, tag):
@@ -696,12 +708,14 @@ class GPXParser(HTMLParser):
             if tag == "wpt" and self.lat is not None and self.lon is not None:
                 # print(self.wpt_name, self.wpt_desc)
                 self.waypoints.append((self.lat, self.lon, self.wpt_name))
+                self.waypoint_translation.append((self.wpt_name, self.wpt_desc))
                 self.wpt_name = None
                 self.wpt_desc = None
             elif tag == "name":
                 self.process_name = False
             elif tag == "desc":
-                self.process_desc = False
+                if self.process_desc:
+                    self.process_desc = False
 
     def handle_data(self, data):
         if self.process_wpt:
@@ -709,6 +723,9 @@ class GPXParser(HTMLParser):
                 self.wpt_name += data
             if self.process_desc:
                 self.wpt_desc += data
+        elif self.process_metadata:
+            if self.process_desc:
+                self.metadata_desc += data
 
     def draw_waypoints(self):
         """
@@ -919,6 +936,7 @@ def draw_gpx_tracks(draw, gpxfiles):
 
     return gpxinstances
 
+
 def draw_gpx_waypoints(gpxlist):
     """
     Draw the marker of the GPX tracks
@@ -931,6 +949,7 @@ def draw_gpx_waypoints(gpxlist):
 
     for gpx in gpxlist:
         gpx.draw_waypoints()
+
 
 def draw_town_labels(draw, swx, swy, nex, ney, zoom):
     """
@@ -953,6 +972,64 @@ def draw_town_labels(draw, swx, swy, nex, ney, zoom):
         for townclass in ["capitals", "cities", "towns"]:
             for t in towns[townclass]:
                 draw.town_label(t)
+
+
+def waypoints_as_html(gpxlist, filename, size):
+    """
+    Generate HTML code to inline map and list all waypoints
+    :param gpxlist: list of gpxfiles
+    :param filename: output file name
+    :param size: map size in pixels
+    :return: HTML code
+    """
+    out = '''<!doctype html>
+<html>
+    <head>
+        <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+        <title>{title}</title>
+        <style>
+             @page {{
+                size: auto;
+                margin: {margin}mm {margin}mm {margin}mm {margin}mm;
+            }}
+            img.map {{max-width: 100%}}
+            div.map {{page-break-after: always}}
+        </style>
+    </head>
+    <body>
+'''
+
+    path = Path(filename)
+    out = out.format(title=path.stem, margin=args.margin)
+
+    if path.suffix in [".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif"]:
+        out += '\t<div class="map"><img src="{img}" class="map" alt="{alt}"/></div>\n'.format(
+            img=path.name,
+            alt=path.stem,
+            width=size[0],
+            height=size[1])
+
+    for gpx in gpxlist:
+        if len(gpx.waypoint_translation) == 0:
+            continue
+
+        out += '\t<h1>{}</h1>\n\t<div class="waypoints"><ol>\n'.format(gpx.metadata_desc)
+        for poi in gpx.waypoint_translation:
+            out += '\t\t<li>'
+            if poi[0] is not None:
+                out += poi[0]
+                if poi[1] is not None:
+                    out += '<br>\n\t\t    {}'.format(poi[1])
+            else:
+                if poi[1] is not None:
+                    out += poi[1]
+                else:
+                    out += '&nbsp;'
+            out += '</li>\n'
+        out += '\t</ol></div>\n'
+
+    out += '</body>\n</html>'
+    return out
 
 
 def get_cmdline_args():
@@ -1025,15 +1102,17 @@ if __name__ == "__main__":
         sys.exit(1)
 
     swx, swy, nex, ney, numx, numy = get_tilerange(args.south, args.west, args.north, args.east, zoom)
+    imagesize = [numx * tilesize, numy * tilesize]
+    outfile = args.out.format(tileshandle)
 
     print("SW tile: {}/{}/{}.png".format(zoom, swx, swy))
     print("NE tile: {}/{}/{}.png".format(zoom, nex, ney))
     print("Number of x (longitude) tiles: {}".format(numx))
     print("Number of y (latitude) tiles: {}".format(numy))
     print("Size of paper: {}×{}".format(papersize[0], papersize[1]))
-    print("Size of graphics: {}×{}".format(numx * tilesize, numy * tilesize))
+    print("Size of graphics: {}×{}".format(imagesize[0], imagesize[1]))
 
-    canvas = MapDraw(Image.new("RGBA", [numx * tilesize, numy * tilesize]), args.north, args.west, zoom)
+    canvas = MapDraw(Image.new("RGBA", imagesize), args.north, args.west, zoom)
     canvas.set_style(style)
 
     stitch_map(canvas, swx, swy, nex, ney, zoom)
@@ -1046,5 +1125,12 @@ if __name__ == "__main__":
     draw_gpx_waypoints(gpxlist)
 
     if not args.dryrun:
-        with open(args.out.format(tileshandle), "wb") as fp:
+        with open(outfile, "wb") as fp:
             canvas.image.convert("RGB").save(fp)
+
+        p = Path(outfile)
+        htmlfile = str(p.parent) + os.path.sep + p.stem + ".html"
+        with open(htmlfile, "w") as fp:
+            fp.write(waypoints_as_html(gpxlist, outfile, imagesize))
+    else:
+        print(waypoints_as_html(gpxlist, outfile, imagesize))
