@@ -22,8 +22,9 @@ file writing.
 ## Requirements
 
   - Python 3
-  - Pillow
+  - Pillow 1.1.7 or newer
   - GDAL Python bindings (optional)
+  - Python-fontconfig 0.5.1 (optional)
 
 ## Command line parameters 
 
@@ -57,7 +58,8 @@ file writing.
                             tile server to use
       -t TILESERVER, --tileserver TILESERVER
                             URL for the tileserver
-      -g GPX, --gpx GPX     colon separated list of GPX files
+       -g GPX, --gpx GPX     GPX file: [(trk|wpt|any),]file.gpx - may be specified
+                        multiple times
       -S SHAPEFILE, --shapefile SHAPEFILE
                             shapefile for streets
       -o OUT, --out OUT     name of output file
@@ -79,3 +81,5 @@ Good base map tiles are available (at the time of writing) from
 
 Please excuse the messy code, this suddenly escalated from a simple tile
 stitcher to what it is now. Funny how that keeps happening to me.
+
+Thanks to Gregor Leusch for the valuable input and testing on Ubuntu

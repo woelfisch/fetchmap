@@ -42,6 +42,13 @@ except:
     print("NOTE: GDAL bindings not available, won't render streets")
     HAVE_GDAL = False
 
+try:
+    import fontconfig
+    HAVE_FONTCONFIG = True
+except:
+    print('NOTE: Fontconfig bindings not available, adjust Styles[*]["fonts"] if required')
+    HAVE_FONTCONFIG = False
+
 DEFAULT_TILESERVER = "wikimedia"
 DEFAULT_SHAPEFILE = "/data/maps/naturalearth/ne_10m_roads_north_america.shp"
 
@@ -113,11 +120,14 @@ TileserverList = {
 
 Styles = {
     "default": {
+        # Fonts can either be specified by their filename, i.e. ("arialbd.ttf", 56) or
+        # by fontconfig specification, i.e. (("Arial", "Bold"), 56)
         "fonts": {
-            "capitals": ImageFont.truetype("Cabin-Bold", 56),
-            "cities": ImageFont.truetype("Cabin-Bold", 44),
-            "towns": ImageFont.truetype("Cabin-Regular", 44),
-            "waypoints": ImageFont.truetype("Cabin-Bold", 48),
+            # Cabin is provided with the Google Web Fonts, available from http://www.impallari.com/cabin
+            "capitals": ("Cabin-Bold.ttf", 56),
+            "cities":("Cabin-Bold.ttf", 44),
+            "towns": ("Cabin-Regular.ttf", 44),
+            "waypoints": ("Cabin-Bold.ttf", 48),
         },
         "markersizes": {
             "capitals": 14,
@@ -187,7 +197,6 @@ tilesserver = TileserverList[tileshandle]
 tilesize = 256
 
 Cachedir = "~/.cache/fetchmap"
-
 
 # filename and directory stuff
 
@@ -401,6 +410,52 @@ def latlon_from_attrs(attrs):
     return lat, lon
 
 
+# Font helper(s)
+
+Fontdirs = []
+def get_font_dirs():
+    if HAVE_FONTCONFIG:
+        for f in fontconfig.query():
+            fd = os.path.dirname(f)
+            if fd not in Fontdirs:
+                Fontdirs.append(fd)
+
+def get_font(fontspec):
+    fontfile = fontspec[0]
+    fontsize = fontspec[1]
+    have_fcspec = isinstance(fontfile, tuple) or isinstance(fontfile, list)
+
+    if HAVE_FONTCONFIG:
+        found = False
+        if have_fcspec:
+            fontfile = fontspec[0][0]
+
+            # providing lang does nothing, though
+            fcfonts = fontconfig.query(family=fontspec[0][0], lang="en")
+
+            # here's the kicker: iterating over fcfonts directly results in strings of filenames
+            for fcfcount in range(len(fcfonts)):
+                fcf = fcfonts[fcfcount]
+                for lang, style in fcf.style:
+                    if lang == "en" and style.lower() == fontspec[0][1].lower():
+                        fontfile = fcf.file
+                        found = True
+
+        if not found:
+            for fd in Fontdirs:
+                ff = fd+os.path.sep+fontfile
+                if os.path.exists(ff):
+                    fontfile = ff
+                    found = True
+                    break
+            if not found:
+                return ImageFont.load_default()
+    elif have_fcspec:
+        print("WARNING: fontconfig specification not supported without fontconfig module")
+        return ImageFont.load_default()
+
+    return ImageFont.truetype(fontfile, fontsize)
+
 class MapDraw:
     """
     Draw lines and labels on a map
@@ -425,6 +480,8 @@ class MapDraw:
         self.style = Styles["default"]
 
         self.wpticon = Image.open(Resourcedir+"/waypoint.png").convert("RGBA")
+        self.fonts = {}
+        self.set_fonts()
 
     def set_style(self, styleid):
         """
@@ -437,6 +494,11 @@ class MapDraw:
             st = Styles[styleid]
             for attr in Styles[styleid].keys():
                 self.style[attr] = st[attr]
+            self.set_fonts()
+
+    def set_fonts(self):
+        for font in self.style["fonts"]:
+            self.fonts[font] = get_font(self.style["fonts"][font])
 
     # noinspection PyAttributeOutsideInit,PyAttributeOutsideInit
     def set_image(self, image):
@@ -528,7 +590,7 @@ class MapDraw:
         :return:
         """
         pos = self.latlon_to_canvas(town["lat"], town["lon"])
-        font = self.style["fonts"][town["class"]]
+        font = self.fonts[town["class"]]
         msize = self.style["markersizes"][town["class"]]
 
         ts = self.canvas.textsize(town["name"], font=font)
@@ -563,7 +625,7 @@ class MapDraw:
         self.image.paste(self.wpticon, (x, y), self.wpticon)
 
         if text:
-            font = self.style["fonts"]["waypoints"]
+            font = self.fonts["waypoints"]
             textcolor = self.style["waypointcolor"]["text"]
             bgcolor = self.style["waypointcolor"]["background"]
 
@@ -832,10 +894,10 @@ def draw_gpx_tracks(draw, gpxfiles):
     :return:
     """
     if not gpxfiles:
-        return
+        return None
 
     gpxinstances = []
-    for gpxfilespec in gpxfiles.split(os.pathsep):
+    for gpxfilespec in gpxfiles:
         gfs = gpxfilespec.split(",")
         if len(gfs) > 1 and gfs[0] in ["wpt", "trk", "any"]:
             features = gfs[0]
@@ -863,6 +925,9 @@ def draw_gpx_waypoints(gpxlist):
     :param gpxlist: list of GPXParser
     :return:
     """
+
+    if gpxlist is None:
+            return
 
     for gpx in gpxlist:
         gpx.draw_waypoints()
@@ -911,7 +976,7 @@ def get_cmdline_args():
     parser.add_argument("-s", "--tilesource", type=str, default=DEFAULT_TILESERVER,
                         choices=sorted(TileserverList.keys()), help="tile server to use")
     parser.add_argument("-t", "--tileserver", type=str, help="URL for the tileserver")
-    parser.add_argument("-g", "--gpx", type=str, help="colon separated list of GPX files")
+    parser.add_argument("-g", "--gpx", type=str, action="append", help="GPX file: [(trk|wpt|any),]file.gpx - may be specified multiple times")
     parser.add_argument("-S", "--shapefile", type=str, default=DEFAULT_SHAPEFILE, help="shapefile for streets")
     parser.add_argument("-o", "--out", type=str, default="mapfile-{}.jpg", help="name of output file")
     return parser.parse_args()
@@ -925,6 +990,7 @@ if __name__ == "__main__":
     Cachedir = get_path(Cachedir)
     Programdir = get_programdir()
     Resourcedir = Programdir + os.path.sep + "resources"
+    get_font_dirs()
 
     args = get_cmdline_args()
     papersize = get_paper_size(args.papersize, False, args.dpi, args.margin)
