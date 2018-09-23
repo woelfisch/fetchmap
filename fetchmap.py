@@ -32,6 +32,7 @@ from html.parser import HTMLParser
 from inspect import getframeinfo, currentframe
 from pathlib import Path
 
+import re
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 try:
@@ -327,6 +328,32 @@ def get_bbox(x1, y1, x2, y2, zoom):
     lat2, lon2 = num2deg(x2 + 1, y2, zoom)
     return lat1, lon1, lat2, lon2
 
+def to_int(s):
+    """
+    Try to get an integer from an OSM kv attribute, to get
+    something useful from things like population="19,517 (2010)"
+    Note: will fail for non-integer numbers as it removes anything
+    that might be a delimiter - US notation has opposite semantics
+    of a decimal point and a grouping delimiter.
+
+    :param s: attribute value
+    :return: int
+    """
+
+    # This should not happen, but we're dealing with OSM here
+    if s is None:
+        return 0
+
+    try:
+        # remove trailing sh*t
+        v = re.split(r'[;(\[]', s)[0]
+    except:
+        v = s
+
+    # let's hope "12 345 000" is actually 12345000
+    # and nobody uses thin space or narrow no-break space
+    v = int(re.sub(r"[,.'\s]", "", v))
+    return int(v)
 
 # Get data from cache or web service
 
@@ -776,6 +803,7 @@ class OSMParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "node" and self.lat is not None and self.lon is not None:
             townclass = "towns"
+            population = 0
 
             if "place" in self.kv and self.kv["place"] == "city":
                 townclass = "cities"
@@ -784,9 +812,10 @@ class OSMParser(HTMLParser):
                 townclass = "capitals"
 
             if "population" in self.kv:
-                population = int(self.kv["population"])
-            else:
-                population = 0
+                try:
+                    population = to_int(self.kv["population"])
+                except ValueError as e:
+                    print("{}: kv={}".format(e, self.kv))
 
             if "name" in self.kv:
                 town = {
@@ -904,10 +933,12 @@ def draw_gpx_tracks(draw, gpxfiles):
     :param gpxfiles: colon-separated list of GPX file names
     :return:
     """
-    if not gpxfiles:
-        return None
 
     gpxinstances = []
+
+    if not gpxfiles:
+        return gpxinstances
+
     for gpxfilespec in gpxfiles:
         gfs = gpxfilespec.split(",")
         if len(gfs) > 1 and gfs[0] in ["wpt", "trk", "any"]:
